@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>FigFox</title>
+    <meta
+      name="description"
+      content="A green phosphor tube where a fox catches figs, and the way out to the blog."
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#05060a" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="FigFox" />
+    <meta
+      property="og:description"
+      content="A green phosphor tube where a fox catches figs."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <h1 class="sr-only">Figox</h1>
+
+    <canvas id="crt" aria-hidden="true"></canvas>
+
+    <!--
+      These are the real, focusable links. The canvas only mirrors them.
+      Edit the href values here; the picture reads its labels from this list.
+    -->
+    <nav id="dock" class="dock" aria-label="Links">
+      <a data-item="blog" href="https://blog.cat0x1f.org">blog.html</a>
+      <a data-item="github" href="https://github.com/cat0x1f">github.html</a>
+      <a data-item="about" href="https://github.com/cat0x1f/FigFox">about.txt</a>
+    </nav>
+
+    <!-- Edit these lines; the tube prints them under `cat about.txt`. -->
+    <div id="about" hidden>
+      <p>A small green fox is catching falling figs.</p>
+      <p>The fox will have a good meal.</p>
+    </div>
+
+    <noscript>
+      <div class="nojs">
+        <p><span class="nojs__dim">$</span> figfox</p>
+        <p class="nojs__dim">
+          this page draws itself on a canvas, so here are the links instead:
+        </p>
+        <p><a href="https://blog.cat0x1f.org">blog</a></p>
+        <p><a href="https://github.com/cat0x1f">github</a></p>
+        <p><a href="https://github.com/cat0x1f/FigFox">about</a></p>
+      </div>
+    </noscript>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
