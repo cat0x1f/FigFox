@@ -1,5 +1,6 @@
 import { C, GAME } from './config'
 import type { FoxGame } from './game'
+import type { FoxRunner } from './runner'
 
 export type ItemId = string
 
@@ -43,6 +44,8 @@ interface Layout {
   statusY: number
 }
 
+export type PlayMode = 'idle' | 'runner'
+
 export interface SceneState {
   time: number
   boot: number
@@ -50,6 +53,10 @@ export interface SceneState {
   active: ItemId | null
   reducedMotion: boolean
   game: FoxGame
+  runner: FoxRunner
+  mode: PlayMode
+  /** 0..1 while the easter egg is being armed. */
+  hold: number
 }
 
 const POST_LINES = [
@@ -246,12 +253,15 @@ export class SceneRenderer {
     ctx.fillText('./fox', l.margin + prefixWidth, y)
     ctx.fillStyle = C.dim
     ctx.fillText(
-      ' --auto',
+      state.mode === 'runner' ? ' --run' : ' --auto',
       l.margin + prefixWidth + ctx.measureText('./fox').width,
       y,
     )
 
-    const count = `${state.caught} fig${state.caught === 1 ? '' : 's'}`
+    const count =
+      state.mode === 'runner'
+        ? `${String(state.runner.score).padStart(3, '0')} m`
+        : `${state.caught} fig${state.caught === 1 ? '' : 's'}`
     ctx.fillStyle = C.dim
     ctx.textAlign = 'right'
     ctx.fillText(`# ${count}`, l.margin + l.contentWidth, y)
@@ -260,7 +270,8 @@ export class SceneRenderer {
 
   private drawBand(state: SceneState, l: Layout): void {
     const { ctx } = this
-    state.game.resize(this.gameWidth())
+    const field = state.mode === 'runner' ? state.runner : state.game
+    field.resize(this.gameWidth())
 
     // A little depth behind the playfield so the sky is not a flat rectangle.
     const sky = ctx.createLinearGradient(
@@ -275,12 +286,19 @@ export class SceneRenderer {
     ctx.fillRect(0, l.bandTop, l.cssWidth, l.bandHeight)
 
     ctx.imageSmoothingQuality = 'high'
-    state.game.drawInto(ctx, {
+    field.drawInto(ctx, {
       x: 0,
       y: l.bandTop,
       width: l.cssWidth,
       height: l.bandHeight,
     })
+
+    if (state.hold > 0.001) {
+      // Arming the easter egg: a thin line fills along the top of the tube.
+      const width = l.cssWidth * Math.min(1, state.hold)
+      ctx.fillStyle = 'rgba(0, 255, 65, 0.55)'
+      ctx.fillRect(0, l.bandTop, width, Math.max(1, l.bandHeight * 0.006))
+    }
   }
 
   private drawListing(state: SceneState, l: Layout): SceneItem[] {

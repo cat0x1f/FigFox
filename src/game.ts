@@ -1,10 +1,15 @@
 import { COLORS, GAME } from './config'
-import { FOX_PIXELS, type Art } from './art'
+import type { Art } from './art'
 import {
-  buildGrass,
-  buildGrassFront,
+  Backdrop,
+  GRASS_HEIGHT,
+  GRASS_TOP,
+  type BandRect,
+} from './backdrop'
+import { FoxPainter } from './foxdraw'
+import {
+  buildGroundBand,
   makeImageSprite,
-  mulberry32,
   type SpriteImage,
 } from './sprites'
 
@@ -50,15 +55,9 @@ export interface GameOptions {
   art: Art
 }
 
-export interface BandRect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
 /** Drawn size of the fox, as a multiple of the artwork's 20px grid. */
 const FOX_SCALE = 1.7
+const FOX_PIXELS = 20
 const FOX_DRAW = Math.round(FOX_PIXELS * FOX_SCALE)
 const FOX_HALF = FOX_DRAW / 2
 const FOX_TOP = GAME.ground - FOX_DRAW
@@ -67,13 +66,8 @@ const CATCH_Y = FOX_TOP + Math.round(FOX_DRAW * 0.48)
 /** Distance a fig falls from spawn to the catch line. */
 const CATCH_FALL = CATCH_Y
 
-const GRASS_HEIGHT = 26
-const GRASS_TOP = GAME.height - GRASS_HEIGHT
-
 /** Logical pixels per step of the walk cycle. */
 const STRIDE = 22
-/** How far the fox lifts off the grass at the top of a step, in logical pixels. */
-const HOP = 3.2
 /** Below this speed the fox is not considered to be going anywhere. */
 const FACING_DEADZONE = 5
 /** Shortest time a facing is held, which stops left/right flickering. */
@@ -82,7 +76,7 @@ const FACING_HOLD = 0.25
 const TURN_TIME = 0.12
 
 /**
- * The fig-catching simulation, played entirely by the fox.
+ * The fig-catching screensaver, played entirely by the fox.
  *
  * It owns a low resolution backdrop canvas for the grass and stars, but the
  * fox, the figs and the particles are drawn straight into the scene at CSS
@@ -91,17 +85,14 @@ const TURN_TIME = 0.12
  * look like a slide show.
  */
 export class FoxGame {
-  private readonly backdrop: HTMLCanvasElement
-  private readonly backdropCtx: CanvasRenderingContext2D
-  private readonly foxSprites: Record<string, SpriteImage> = {}
+  private readonly backdrop: Backdrop
+  private readonly fox: FoxPainter
   private readonly figSprite: SpriteImage
   private readonly figWidth: number
   private readonly figHeight: number
   private readonly reducedMotion: boolean
 
-  private grassFrames: HTMLCanvasElement[] = []
   private frontFrames: HTMLCanvasElement[] = []
-  private stars: Array<{ x: number; y: number; phase: number }> = []
   private figs: Fig[] = []
   private particles: Particle[] = []
   private width: number
@@ -117,6 +108,7 @@ export class FoxGame {
   private spawnTimer = 0
   private score = 0
   private flash = 0
+  private glow = 0
   private elapsed = 0
   private frameHandle = 0
   private lastTime = 0
@@ -127,26 +119,11 @@ export class FoxGame {
     this.foxX = this.width / 2
     this.leg = this.driftLeg(GAME.spawnGap / 1000)
 
-    this.backdrop = document.createElement('canvas')
-    this.backdrop.width = this.width
-    this.backdrop.height = GAME.height
-    const ctx = this.backdrop.getContext('2d')
-    if (!ctx) throw new Error('Canvas 2D context is unavailable')
-    this.backdropCtx = ctx
-
+    this.backdrop = new Backdrop(this.width, options.art.clouds)
     this.reducedMotion = options.reducedMotion ?? false
 
     const { fox, fig } = options.art
-    const glow = { color: COLORS.foxGlow, blur: 3.5 }
-    const sprites: Record<string, HTMLImageElement> = {
-      'front:open': fox.open,
-      'front:closed': fox.closed,
-      'turned:open': fox.openTurn,
-      'turned:closed': fox.closedTurn,
-    }
-    for (const [key, image] of Object.entries(sprites)) {
-      this.foxSprites[key] = makeImageSprite(image, FOX_PIXELS, FOX_PIXELS, glow)
-    }
+    this.fox = new FoxPainter(fox)
 
     this.figWidth = fig.naturalWidth
     this.figHeight = fig.naturalHeight
@@ -155,11 +132,21 @@ export class FoxGame {
       blur: 5,
     })
 
-    this.buildBackdrop()
+    this.buildFront()
   }
 
   get caught(): number {
     return this.score
+  }
+
+  /** Where the fox is standing, so other modes can take over from there. */
+  get position(): number {
+    return this.foxX
+  }
+
+  /** Extra phosphor brightness, used while the easter egg is being armed. */
+  setGlow(value: number): void {
+    this.glow = clamp(value, 0, 1)
   }
 
   /** Resize the logical field, keeping the fox roughly where it was. */
@@ -168,13 +155,13 @@ export class FoxGame {
     if (next === this.width) return
     const ratio = next / this.width
     this.width = next
-    this.backdrop.width = next
+    this.backdrop.resize(next)
     this.foxX = clamp(this.foxX * ratio, this.minX(), this.maxX())
     // Anything in flight was aimed at the old geometry; start clean.
     this.figs = []
     this.leg = this.driftLeg(0.4)
     this.spawnTimer = 0
-    this.buildBackdrop()
+    this.buildFront()
   }
 
   start(): void {
@@ -206,28 +193,14 @@ export class FoxGame {
     return this.width - FOX_HALF - 10
   }
 
-  private buildBackdrop(): void {
-    const random = mulberry32(7)
-    const count = Math.round(this.width / 30)
-    this.stars = []
-    for (let i = 0; i < count; i += 1) {
-      this.stars.push({
-        x: Math.round(8 + random() * (this.width - 16)),
-        y: Math.round(6 + random() * (GRASS_TOP - 40)),
-        phase: random() * Math.PI * 2,
-      })
-    }
-
+  private buildFront(): void {
     const palette = {
       bright: COLORS.grass,
       mid: COLORS.grassMid,
       dark: COLORS.grassDark,
     }
-    this.grassFrames = [0, 1, 2].map((frame) =>
-      buildGrass(this.width, GRASS_HEIGHT, 1000 + frame * 97, palette),
-    )
     this.frontFrames = [0, 1, 2].map((frame) =>
-      buildGrassFront(this.width, GRASS_HEIGHT, 500 + frame * 83, palette),
+      buildGroundBand(this.width, GRASS_HEIGHT, 500 + frame * 83, palette),
     )
   }
 
@@ -299,7 +272,7 @@ export class FoxGame {
     this.facingHeld += dt
   }
 
-  /** Blinks are their own thing now, not a step of the walk. */
+  /** Blinks are their own thing, not a step of the walk. */
   private stepBlink(dt: number): void {
     if (this.reducedMotion) return
     this.blinkLeft = Math.max(0, this.blinkLeft - dt)
@@ -470,13 +443,13 @@ export class FoxGame {
    * so it stands in the grass rather than on top of it.
    */
   drawInto(ctx: CanvasRenderingContext2D, rect: BandRect): void {
-    this.paintBackdrop()
+    this.backdrop.paint(this.elapsed, this.reducedMotion, this.elapsed * 2.5)
 
     const smoothing = ctx.imageSmoothingEnabled
     const pixel = rect.height / GAME.height
 
     ctx.imageSmoothingEnabled = true
-    ctx.drawImage(this.backdrop, rect.x, rect.y, rect.width, rect.height)
+    ctx.drawImage(this.backdrop.canvas, rect.x, rect.y, rect.width, rect.height)
     ctx.imageSmoothingEnabled = false
 
     for (const fig of this.figs) {
@@ -490,7 +463,16 @@ export class FoxGame {
       )
     }
 
-    this.drawFox(ctx, rect, pixel)
+    this.fox.draw(ctx, rect, pixel, {
+      x: this.foxX,
+      bottom: GAME.ground,
+      facing: this.facing,
+      walked: this.walked,
+      airborne: false,
+      blink: this.blinkLeft > 0,
+      turnPulse: this.reducedMotion ? 0 : this.turnPulse,
+      glow: this.glow,
+    })
 
     // The near grass is drawn after the fox, so it covers its paws.
     const sway = this.reducedMotion
@@ -527,60 +509,6 @@ export class FoxGame {
       ctx.fillStyle = `rgba(200, 240, 255, ${(this.flash * 0.04).toFixed(3)})`
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
     }
-  }
-
-  private paintBackdrop(): void {
-    const ctx = this.backdropCtx
-    ctx.clearRect(0, 0, this.width, GAME.height)
-
-    for (const star of this.stars) {
-      const twinkle = this.reducedMotion
-        ? 0.22
-        : 0.14 + 0.18 * (0.5 + 0.5 * Math.sin(this.elapsed * 0.9 + star.phase))
-      ctx.fillStyle = `rgba(158, 206, 106, ${twinkle.toFixed(3)})`
-      ctx.fillRect(star.x, star.y, 1, 1)
-    }
-
-    const sway = this.reducedMotion
-      ? 0
-      : Math.floor(this.elapsed / 0.55) % this.grassFrames.length
-    const grass = this.grassFrames[sway]
-    if (grass) ctx.drawImage(grass, 0, GRASS_TOP)
-  }
-
-  private drawFox(
-    ctx: CanvasRenderingContext2D,
-    rect: BandRect,
-    pixel: number,
-  ): void {
-    const turning = this.turnPulse > 0.5
-    const blinking = this.blinkLeft > 0
-    const key = `${turning ? 'front' : 'turned'}:${blinking ? 'closed' : 'open'}`
-    const sprite = this.foxSprites[key]
-    if (!sprite) return
-
-    // One continuous hop per step, so the walk reads as footfalls instead of a
-    // slide. The squash peaks at the moment the paws touch down.
-    const phase = this.walked / STRIDE
-    const hop = this.reducedMotion ? 0 : Math.abs(Math.sin(Math.PI * phase))
-    const lift = -hop * HOP
-    const squash = 1 + 0.07 * (1 - hop)
-    const stretch = 1 - 0.06 * (1 - hop)
-    const turnSquash = this.reducedMotion ? 1 : 1 - 0.22 * this.turnPulse
-
-    const unit = pixel * FOX_SCALE
-    const artWidth = FOX_PIXELS * unit * squash * turnSquash
-    const artHeight = FOX_PIXELS * unit * stretch
-    const centreX = rect.x + this.foxX * pixel
-    const bottomY = rect.y + (GAME.ground + lift) * pixel
-
-    ctx.save()
-    if (this.facing < 0) {
-      ctx.translate(centreX * 2, 0)
-      ctx.scale(-1, 1)
-    }
-    this.blit(ctx, sprite, centreX, bottomY, artWidth, artHeight)
-    ctx.restore()
   }
 
   /**

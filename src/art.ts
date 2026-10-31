@@ -3,6 +3,10 @@ import openUrl from './assets/fox/open.png'
 import closedTurnUrl from './assets/fox/closed-turn.png'
 import openTurnUrl from './assets/fox/open-turn.png'
 import figUrl from './assets/fig/sprite.png'
+import sharkUrl from './assets/shark/sprite.png'
+import cloudAUrl from './assets/cloud/a.png'
+import cloudBUrl from './assets/cloud/b.png'
+import cloudCUrl from './assets/cloud/c.png'
 
 /**
  * Everything the game draws, as PNGs produced by `node tools/build-sprites.mjs`.
@@ -22,20 +26,28 @@ export interface FoxArt {
 export interface Art {
   fox: FoxArt
   fig: HTMLImageElement
+  shark: HTMLImageElement
+  /** Slow drifting clouds for the sky band. */
+  clouds: HTMLImageElement[]
 }
 
 /** Native pixel size of the fox grid. */
 export const FOX_PIXELS = 20
 
 export async function loadArt(): Promise<Art> {
-  const [closed, open, closedTurn, openTurn, fig] = await Promise.all([
-    loadImage(closedUrl),
-    loadImage(openUrl),
-    loadImage(closedTurnUrl),
-    loadImage(openTurnUrl),
-    loadImage(figUrl),
-  ])
-  return { fox: { closed, open, closedTurn, openTurn }, fig }
+  const [closed, open, closedTurn, openTurn, fig, shark, ...clouds] =
+    await Promise.all([
+      loadImage(closedUrl),
+      loadImage(openUrl),
+      loadImage(closedTurnUrl),
+      loadImage(openTurnUrl),
+      loadImage(figUrl),
+      loadImage(sharkUrl),
+      loadImage(cloudAUrl),
+      loadImage(cloudBUrl),
+      loadImage(cloudCUrl),
+    ])
+  return { fox: { closed, open, closedTurn, openTurn }, fig, shark, clouds }
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

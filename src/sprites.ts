@@ -86,35 +86,42 @@ interface GrassLayer {
 }
 
 /**
- * The near grass: a dense band drawn *after* the fox, so its paws are buried
- * in grass instead of standing on the line. Kept shorter than the far layer so
- * the fox still reads.
+ * The near grass plus the flecks that sit on top of it, in one tileable strip.
+ *
+ * Everything is drawn with wrapped columns so the left and right edges match:
+ * the runner draws this twice, offset by the distance travelled, and the ground
+ * scrolls without a seam.
  */
-export function buildGrassFront(
+export function buildGroundBand(
   width: number,
-  height: number,
+  grassHeight: number,
   seed: number,
   colors: GrassColors,
 ): HTMLCanvasElement {
+  const height = grassHeight
   const canvas = createCanvas(width, height)
   const ctx = context2d(canvas)
   const random = mulberry32(seed)
   const baseY = height
+  const wrap = (x: number): number => ((x % width) + width) % width
 
   ctx.fillStyle = colors.dark
   ctx.fillRect(0, baseY - 7, width, 7)
 
-  const humps = (color: string, minHeight: number, maxHeight: number, step: number) => {
+  const humps = (
+    color: string,
+    minHeight: number,
+    maxHeight: number,
+    step: number,
+  ) => {
     ctx.fillStyle = color
     for (let x = -step; x < width; x += step) {
       const size =
         minHeight + Math.floor(random() * (maxHeight - minHeight + 1))
       for (let k = 0; k < step; k += 1) {
-        const px = x + k
-        if (px < 0 || px >= width) continue
         const rise = Math.round(Math.sin((k / step) * Math.PI) * size)
         if (rise <= 0) continue
-        ctx.fillRect(px, baseY - rise, 1, rise)
+        ctx.fillRect(wrap(x + k), baseY - rise, 1, rise)
       }
     }
   }
@@ -122,18 +129,30 @@ export function buildGrassFront(
   humps(colors.mid, 9, 16, 9)
   humps(colors.bright, 6, 12, 6)
 
-  // Taller blades that break the outline and actually cover a paw or two.
+  // Taller blades that break the outline and cover a paw or two.
   ctx.fillStyle = colors.bright
   for (let i = 0; i < Math.round(width / 9); i += 1) {
     const x = Math.floor(random() * width)
     const tall = 12 + Math.floor(random() * 8)
     const lean = random() < 0.5 ? -1 : 1
     for (let h = 0; h < tall; h += 1) {
-      const px = x + Math.round(h / 6) * lean
-      if (px < 0 || px >= width) break
+      const px = wrap(x + Math.round(h / 6) * lean)
       ctx.fillRect(px, baseY - 1 - h, 1, 1)
-      if (h > 3 && h % 4 === 0) ctx.fillRect(px + lean, baseY - h, 1, 1)
+      if (h > 3 && h % 4 === 0) ctx.fillRect(wrap(px + lean), baseY - h, 1, 1)
     }
+  }
+
+  // Flecks riding the canopy line: what actually sells the speed. Baked into
+  // the strip instead of being redrawn as dozens of rects every frame, and kept
+  // at the height of the blade tips so they read as ground detail rather than
+  // dust in the air.
+  for (let i = 0; i < Math.round(width / 9); i += 1) {
+    const x = wrap(Math.floor(random() * width))
+    const lift = 17 + Math.floor(random() * 7)
+    const tall = 1 + Math.floor(random() * 3)
+    ctx.fillStyle =
+      i % 3 === 0 ? colors.bright : i % 3 === 1 ? colors.mid : colors.dark
+    ctx.fillRect(x, baseY - lift, 1, tall)
   }
 
   return canvas
